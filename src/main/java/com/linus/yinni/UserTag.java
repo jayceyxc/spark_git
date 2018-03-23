@@ -1,10 +1,12 @@
 package com.linus.yinni;
 
 import com.hankcs.algorithm.AhoCorasickDoubleArrayTrie;
+import com.linus.utils.MyMultipleOutput;
 import com.linus.utils.Utils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
@@ -12,6 +14,7 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
+import org.apache.spark.api.java.function.PairFunction;
 import scala.Tuple2;
 
 import java.io.IOException;
@@ -245,10 +248,9 @@ public class UserTag {
         });
 
         JavaPairRDD<String, Map<String, BigDecimal>> sortedAdslTagsCount = adslTagsWeight.sortByKey ();
-        sortedAdslTagsCount.map (new Function<Tuple2<String, Map<String, BigDecimal>>, String> () {
-
+        JavaPairRDD<String, String> sortedAdslTagResult = sortedAdslTagsCount.mapToPair (new PairFunction<Tuple2<String, Map<String, BigDecimal>>, String, String> () {
             @Override
-            public String call (Tuple2<String, Map<String, BigDecimal>> adslTags) throws Exception {
+            public Tuple2<String, String> call (Tuple2<String, Map<String, BigDecimal>> adslTags) throws Exception {
                 String adsl = adslTags._1;
                 Map<String, BigDecimal> tagsWeight = adslTags._2;
                 int count = 0;
@@ -291,8 +293,10 @@ public class UserTag {
                     count += 1;
                 }
 
-                return adsl + "\t" + sb.toString ();
+                return new Tuple2<> (adsl, sb.toString ());
             }
-        }).saveAsTextFile (outputPath);
+        });
+
+        sortedAdslTagResult.saveAsHadoopFile (outputPath, NullWritable.class, String.class, MyMultipleOutput.class);
     }
 }
