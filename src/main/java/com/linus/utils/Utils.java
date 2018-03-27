@@ -22,6 +22,7 @@ public class Utils {
     public static final String URL_TAGS_FILE = System.getProperty ("user.dir") + System.getProperty ("file.separator")
             + DATA_FILE_PATH + System.getProperty ("file.separator") + URL_TAGS_FILE_NAME;
     public static final String DOMAIN_SUFFIX_FILE_NAME = "domain.txt";
+    public static final String UA_TAGS_FILE_NAME = "ua_keyword.txt";
 
     private static final String HTTP_PREFIX = "http://";
     private static final String HTTPS_PREFIX = "https://";
@@ -196,7 +197,7 @@ public class Utils {
         }
     }
 
-    public static AhoCorasickDoubleArrayTrie<List<String>> buildACMachine (String filename) {
+    public static AhoCorasickDoubleArrayTrie<List<String>> buildUrlTagsACMachine (String filename) {
         try {
 
             TreeMap<String, List<String>> map = new TreeMap<String, List<String>> ();
@@ -212,6 +213,36 @@ public class Utils {
                     String[] tags = line.trim ().split (",");
 //                    System.out.println ("put url: " + urlPattern);
                     map.put (urlPattern, Arrays.asList (tags));
+                }
+            }
+            AhoCorasickDoubleArrayTrie<List<String>> acdat = new AhoCorasickDoubleArrayTrie<List<String>> ();
+            acdat.build (map);
+
+            return acdat;
+        } catch (FileNotFoundException fnfe) {
+            logger.error ("File not found");
+        } catch (IOException ioe) {
+            logger.error ("Read file failed");
+        }
+
+        return null;
+    }
+
+    public static AhoCorasickDoubleArrayTrie<List<String>> buildUserAgentACMachine (String filename) {
+        try {
+
+            TreeMap<String, List<String>> map = new TreeMap<String, List<String>> ();
+            BufferedReader reader = new BufferedReader (new FileReader (filename));
+            String line = null;
+            while ((line = reader.readLine ()) != null) {
+                line = line.trim ();
+                int index = StringUtils.lastIndexOf (line, ":");
+                if (index > 0) {
+                    String urlPattern = urlFormat (line.substring (0, index).trim ());
+                    line = line.substring (index + 1);
+                    String[] tokens = line.trim ().split (",");
+//                    System.out.println ("put url: " + urlPattern);
+                    map.put (urlPattern, Arrays.asList (tokens));
                 }
             }
             AhoCorasickDoubleArrayTrie<List<String>> acdat = new AhoCorasickDoubleArrayTrie<List<String>> ();
@@ -314,9 +345,9 @@ public class Utils {
 //        System.out.println (urlFormat (url));
         System.out.println (urlToHost (url));
 
-        logger.info ("begin buildACMachine");
-        AhoCorasickDoubleArrayTrie<List<String>> ac = buildACMachine (URL_TAGS_FILE);
-        logger.info ("finish buildACMachine");
+        logger.info ("begin buildUrlTagsACMachine");
+        AhoCorasickDoubleArrayTrie<List<String>> ac = buildUrlTagsACMachine (URL_TAGS_FILE);
+        logger.info ("finish buildUrlTagsACMachine");
         url = "http://ad.afy11.net/aaa.html";
         List<AhoCorasickDoubleArrayTrie<List<String>>.Hit<List<String>>> tagList = ac.parseText (url);
         if (tagList != null) {

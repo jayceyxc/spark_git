@@ -28,6 +28,7 @@ public class UserTag {
     private static final int IP_INDEX = 1;
     private static final int URL_INDEX = 2;
     private static final int REFER_INDEX = 3;
+    private static final int UA_INDEX = 4;
 
     private static final BigDecimal PRESERVE_RATE = BigDecimal.valueOf (0.7);
     private static final BigDecimal MIN_WEIGHT = BigDecimal.valueOf (0.005);
@@ -35,7 +36,8 @@ public class UserTag {
 
     private final static int MIN_TOKENS_LENGTH = 7;
 
-    private static final AhoCorasickDoubleArrayTrie<List<String>> ac = Utils.buildACMachine (Utils.URL_TAGS_FILE_NAME);
+    private static final AhoCorasickDoubleArrayTrie<List<String>> urlsAc = Utils.buildUrlTagsACMachine (Utils.URL_TAGS_FILE_NAME);
+    private static final AhoCorasickDoubleArrayTrie<List<String>> uaAc = Utils.buildUserAgentACMachine (Utils.UA_TAGS_FILE_NAME);
 
     private static Map<String, BigDecimal> normalization (Map<String, BigDecimal> tagValueMap) {
         BigDecimal sum = BigDecimal.ZERO;
@@ -122,13 +124,14 @@ public class UserTag {
                 String ip = tokens[IP_INDEX].trim ();
                 String url = Utils.urlFormat (tokens[URL_INDEX].trim ());
                 String refer = Utils.urlFormat (tokens[REFER_INDEX].trim ());
+                String userAgent = tokens[UA_INDEX].trim ();
 
                 if (adsl.isEmpty ()) {
                     adsl = ip;
                 }
 
                 Set<String> finalTagSet = new TreeSet<String> ();
-                List<AhoCorasickDoubleArrayTrie<List<String>>.Hit<List<String>>> tagList = ac.parseText (url);
+                List<AhoCorasickDoubleArrayTrie<List<String>>.Hit<List<String>>> tagList = urlsAc.parseText (url);
                 if (!tagList.isEmpty ()) {
                     for (AhoCorasickDoubleArrayTrie<List<String>>.Hit<List<String>> hit : tagList) {
                         finalTagSet.addAll (hit.value);
@@ -136,7 +139,7 @@ public class UserTag {
                 }
 
                 tagList.clear ();
-                tagList = ac.parseText (refer);
+                tagList = urlsAc.parseText (refer);
                 if (!tagList.isEmpty ()) {
                     for (AhoCorasickDoubleArrayTrie<List<String>>.Hit<List<String>> hit : tagList) {
                         finalTagSet.addAll (hit.value);
@@ -145,7 +148,7 @@ public class UserTag {
 
                 tagList.clear ();
                 String host = Utils.urlToHost (url);
-                tagList = ac.parseText (host);
+                tagList = urlsAc.parseText (host);
                 if (!tagList.isEmpty ()) {
                     for (AhoCorasickDoubleArrayTrie<List<String>>.Hit<List<String>> hit : tagList) {
                         finalTagSet.addAll (hit.value);
@@ -154,7 +157,15 @@ public class UserTag {
 
                 tagList.clear ();
                 String referHost = Utils.urlToHost (refer);
-                tagList = ac.parseText (referHost);
+                tagList = urlsAc.parseText (referHost);
+                if (!tagList.isEmpty ()) {
+                    for (AhoCorasickDoubleArrayTrie<List<String>>.Hit<List<String>> hit : tagList) {
+                        finalTagSet.addAll (hit.value);
+                    }
+                }
+
+                tagList.clear ();
+                tagList = uaAc.parseText (userAgent);
                 if (!tagList.isEmpty ()) {
                     for (AhoCorasickDoubleArrayTrie<List<String>>.Hit<List<String>> hit : tagList) {
                         finalTagSet.addAll (hit.value);
@@ -297,6 +308,10 @@ public class UserTag {
             }
         });
 
+//        JavaPairRDD<String, String> partitionedResult = sortedAdslTagResult.partitionBy (new CustomPartitioner (4));
+//        partitionedResult.saveAsTextFile (outputPath);
+
         sortedAdslTagResult.saveAsHadoopFile (outputPath, NullWritable.class, String.class, MyMultipleOutput.class);
+
     }
 }
