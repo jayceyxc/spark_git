@@ -27,14 +27,14 @@ public class FindCommonFriends {
 //      将JavaRDD<String>映射到键值对,其中key=Tuple2<user1, user2>, value = 好友列表
         JavaPairRDD<Tuple2<Long, Long>, Iterable<Long>> pairs = records.flatMapToPair (new PairFlatMapFunction<String, Tuple2<Long, Long>, Iterable<Long>> () {
             @Override
-            public Iterable<Tuple2<Tuple2<Long, Long>, Iterable<Long>>> call (String s) throws Exception {
+            public Iterator<Tuple2<Tuple2<Long, Long>, Iterable<Long>>> call (String s) throws Exception {
                 String[] tokens = s.split (",");
                 long person = Long.parseLong (tokens[0]);
                 String friendsAsString = tokens[1];
                 String[] friendsTokenized = friendsAsString.split (" ");
                 if (friendsTokenized.length == 1) {
                     Tuple2<Long, Long> key = buildSortedTuple (person, Long.parseLong (friendsTokenized[0]));
-                    return Arrays.asList (new Tuple2<Tuple2<Long, Long>, Iterable<Long>> (key, new ArrayList<Long> ()));
+                    return Arrays.asList (new Tuple2<Tuple2<Long, Long>, Iterable<Long>> (key, new ArrayList<Long> ())).iterator ();
                 }
 
                 List<Long> friends = new ArrayList<Long> ();
@@ -48,7 +48,7 @@ public class FindCommonFriends {
                     result.add (new Tuple2<Tuple2<Long, Long>, Iterable<Long>> (key, friends));
                 }
 
-                return result;
+                return result.iterator ();
             }
         });
 

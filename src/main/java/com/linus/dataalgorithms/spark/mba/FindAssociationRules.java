@@ -12,6 +12,7 @@ import org.apache.spark.api.java.function.PairFlatMapFunction;
 import scala.Tuple2;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 public class FindAssociationRules {
@@ -74,7 +75,7 @@ public class FindAssociationRules {
         // T => Iterable<Tuple2<K, V>>
         JavaPairRDD<List<String>, Integer> patterns = transactions.flatMapToPair (new PairFlatMapFunction<String, List<String>, Integer> () {
             @Override
-            public Iterable<Tuple2<List<String>, Integer>> call (String transaction) throws Exception {
+            public Iterator<Tuple2<List<String>, Integer>> call (String transaction) throws Exception {
                 List<String> list = toList (transaction);
                 List<List<String>> combinations = Combination.findSortedCombinations (list);
                 List<Tuple2<List<String>, Integer>> result = new ArrayList<Tuple2<List<String>, Integer>> ();
@@ -84,7 +85,7 @@ public class FindAssociationRules {
                     }
                 }
 
-                return result;
+                return result.iterator ();
             }
         });
 
@@ -112,14 +113,14 @@ public class FindAssociationRules {
                         Tuple2<List<String>, Integer>   // V
                         > () {
                     @Override
-                    public Iterable<Tuple2<List<String>, Tuple2<List<String>, Integer>>> call (Tuple2<List<String>, Integer> pattern) throws Exception {
+                    public Iterator<Tuple2<List<String>, Tuple2<List<String>, Integer>>> call (Tuple2<List<String>, Integer> pattern) throws Exception {
                         List<Tuple2<List<String>, Tuple2<List<String>, Integer>>> result =
                                 new ArrayList<Tuple2<List<String>, Tuple2<List<String>, Integer>>> ();
                         List<String> list = pattern._1;
                         Integer frequency = pattern._2;
                         result.add (new Tuple2<> (list, new Tuple2<> (null, frequency)));
                         if (list.size () == 1) {
-                            return result;
+                            return result.iterator ();
                         }
 
                         // 模式中包含多个商品
@@ -129,7 +130,7 @@ public class FindAssociationRules {
                             result.add (new Tuple2<> (subList, new Tuple2<> (list, frequency)));
                         }
 
-                        return result;
+                        return result.iterator ();
                     }
                 });
 

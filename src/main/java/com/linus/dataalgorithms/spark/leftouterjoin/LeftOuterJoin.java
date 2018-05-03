@@ -9,10 +9,7 @@ import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.PairFunction;
 import scala.Tuple2;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class LeftOuterJoin {
     public static void main (String[] args) {
@@ -68,7 +65,7 @@ public class LeftOuterJoin {
 
         JavaPairRDD<String, String> productLocationRDD = groupedRDD.flatMapToPair (new PairFlatMapFunction<Tuple2<String, Iterable<Tuple2<String, String>>>, String, String> () {
             @Override
-            public Iterable<Tuple2<String, String>> call (Tuple2<String, Iterable<Tuple2<String, String>>> s) throws Exception {
+            public Iterator<Tuple2<String, String>> call (Tuple2<String, Iterable<Tuple2<String, String>>> s) throws Exception {
                 String userID = s._1;
                 Iterable<Tuple2<String, String>> pairs = s._2;
                 String location = "UNKNOWN";
@@ -90,7 +87,7 @@ public class LeftOuterJoin {
 
                 // 需要说明，边必须是双向的，也就是说，每个{source, destination} 边必须有一个相应的{destination， source}
 
-                return kvList;
+                return kvList.iterator ();
             }
         });
 

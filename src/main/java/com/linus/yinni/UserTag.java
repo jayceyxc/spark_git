@@ -107,7 +107,7 @@ public class UserTag {
         JavaRDD<String> lines = context.textFile (inputPath, 1);
         JavaPairRDD<String, String> adslTags = lines.flatMapToPair (new PairFlatMapFunction<String, String, String> () {
             @Override
-            public Iterable<Tuple2<String, String>> call (String s) throws Exception {
+            public Iterator<Tuple2<String, String>> call (String s) throws Exception {
                 List<Tuple2<String, String>> results = new ArrayList<> ();
                 String[] tokens = s.trim ().split ("\u0001");
                 if (tokens.length < MIN_TOKENS_LENGTH) {
@@ -117,7 +117,7 @@ public class UserTag {
                         String tagsWeightValue = tokens[1];
                         results.add (new Tuple2<> (adsl, tagsWeightValue));
 
-                        return results;
+                        return results.iterator ();
                     }
                 }
                 String adsl = tokens[ADSL_INDEX].trim ();
@@ -176,7 +176,7 @@ public class UserTag {
                     results.add (new Tuple2<> (adsl, tag));
                 }
 
-                return results;
+                return results.iterator ();
             }
         });
 

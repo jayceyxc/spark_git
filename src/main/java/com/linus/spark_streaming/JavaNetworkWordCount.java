@@ -13,12 +13,13 @@ import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import scala.Tuple2;
 
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.regex.Pattern;
 
 public class JavaNetworkWordCount {
     private static final Pattern SPACE = Pattern.compile (" ");
 
-    public static void main (String[] args) {
+    public static void main (String[] args) throws InterruptedException {
         SparkConf conf = new SparkConf ().setMaster ("spark://192.168.1.110:7077").setAppName ("JavaNetworkWordCount");
         JavaStreamingContext jssc = new JavaStreamingContext (conf, Durations.seconds (10));
         JavaReceiverInputDStream<String> lines = jssc.socketTextStream ("localhost", 9999, StorageLevels.MEMORY_AND_DISK_SER);
@@ -27,8 +28,8 @@ public class JavaNetworkWordCount {
         JavaDStream<String> words = lines.flatMap (
                 new FlatMapFunction<String, String> () {
                     @Override
-                    public Iterable<String> call (String s) throws Exception {
-                        return Arrays.asList (s.split (" "));
+                    public Iterator<String> call (String s) throws Exception {
+                        return Arrays.asList (s.split (" ")).iterator ();
                     }
                 }
         );

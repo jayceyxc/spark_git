@@ -38,7 +38,7 @@ public class TopN {
         // 为各个输入分区创建一个本地top 10列表
         JavaRDD<SortedMap<Integer, String>> partions = pairs.mapPartitions (new FlatMapFunction<Iterator<Tuple2<String, Integer>>, SortedMap<Integer, String>> () {
             @Override
-            public Iterable<SortedMap<Integer, String>> call (Iterator<Tuple2<String, Integer>> tuple2Iterator) throws Exception {
+            public Iterator<SortedMap<Integer, String>> call (Iterator<Tuple2<String, Integer>> tuple2Iterator) throws Exception {
                 SortedMap<Integer, String> top10 = new TreeMap<Integer, String> ();
                 while (tuple2Iterator.hasNext ()) {
                     Tuple2<String, Integer> tuple = tuple2Iterator.next ();
@@ -50,7 +50,7 @@ public class TopN {
                         top10.remove (top10.firstKey ());
                     }
                 }
-                return Collections.singletonList (top10);
+                return Collections.singletonList (top10).iterator ();
             }
         });
 
