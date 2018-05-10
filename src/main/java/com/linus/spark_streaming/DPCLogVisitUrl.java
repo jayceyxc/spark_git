@@ -65,7 +65,7 @@ public class DPCLogVisitUrl {
         JavaStreamingContext jssc = JavaStreamingContext.getOrCreate (checkPointDir, new Function0<JavaStreamingContext> () {
             @Override
             public JavaStreamingContext call () throws Exception {
-                SparkConf conf = new SparkConf ().setMaster ("spark://192.168.1.100:7077").setAppName ("JavaNetworkWordCount");
+                SparkConf conf = new SparkConf ().setMaster ("spark://192.168.1.100:7077").setAppName ("DPCLogVisitUrl");
                 return new JavaStreamingContext (conf, Durations.seconds (10));
             }
         });

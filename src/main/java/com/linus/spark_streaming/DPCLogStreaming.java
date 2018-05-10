@@ -30,7 +30,7 @@ import java.util.Map;
 public class DPCLogStreaming {
 
     public static void main (String[] args) throws InterruptedException {
-        SparkConf conf = new SparkConf ().setMaster ("spark://192.168.1.100:7077").setAppName ("JavaNetworkWordCount");
+        SparkConf conf = new SparkConf ().setMaster ("spark://192.168.1.100:7077").setAppName ("DPCLogStreaming");
         JavaStreamingContext jssc = new JavaStreamingContext (conf, Durations.seconds (10));
         Map<String, Object> kafkaParams = new HashMap<> ();
 //        kafkaParams.put("bootstrap.servers", "localhost:9092,anotherhost:9092");
