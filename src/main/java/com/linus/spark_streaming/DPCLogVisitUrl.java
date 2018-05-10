@@ -66,7 +66,7 @@ public class DPCLogVisitUrl {
             @Override
             public JavaStreamingContext call () throws Exception {
                 SparkConf conf = new SparkConf ().setMaster ("spark://192.168.1.100:7077").setAppName ("DPCLogVisitUrl");
-                return new JavaStreamingContext (conf, Durations.seconds (10));
+                return new JavaStreamingContext (conf, Durations.seconds (1));
             }
         });
 
@@ -106,12 +106,21 @@ public class DPCLogVisitUrl {
                 }).reduceByKeyAndWindow (
                         new AddUrlCount (),         // 加上新进入窗口的批次中的元素
                         new SubtractUrlCount (),    // 移除离开窗口的老批次中的元素
-                        Durations.seconds (30),     // 窗口时长
-                        Durations.seconds (20)      // 滑动步长
-                );
+                        Durations.seconds (30),     // window duration
+                        Durations.seconds (5)       // slide duration
+                ).filter (new Function<Tuple2<String, Integer>, Boolean> () {
+                    @Override
+                    public Boolean call (Tuple2<String, Integer> v1) throws Exception {
+                        if (v1._2 > 0) {
+                            return true;
+                        } else {
+                            return false;
+                        }
+                    }
+                });
 
 //        wordCounts.print ();
-        wordCounts.foreachRDD (new VoidFunction2<JavaPairRDD<String,Integer>, Time> () {
+        wordCounts.foreachRDD (new VoidFunction2<JavaPairRDD<String, Integer>, Time> () {
             @Override
             public void call (JavaPairRDD<String, Integer> v1, Time v2) throws Exception {
                 System.out.println ("-------------------------------------------");
