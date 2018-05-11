@@ -20,7 +20,7 @@ public class JavaNetworkWordCount {
     private static final Pattern SPACE = Pattern.compile (" ");
 
     public static void main (String[] args) throws InterruptedException {
-        SparkConf conf = new SparkConf ().setMaster ("spark://192.168.1.100:7077").setAppName ("JavaNetworkWordCount");
+        SparkConf conf = new SparkConf ().setAppName ("JavaNetworkWordCount");
         JavaStreamingContext jssc = new JavaStreamingContext (conf, Durations.seconds (10));
         JavaReceiverInputDStream<String> lines = jssc.socketTextStream ("localhost", 9999, StorageLevels.MEMORY_AND_DISK_SER);
 
