@@ -54,7 +54,7 @@ public class RtbLogStatRedisVersion {
 
         private String state;
 
-        public AdState () {
+        private AdState () {
             this.state = INIT_STATE_STR;
         }
 
@@ -94,7 +94,7 @@ public class RtbLogStatRedisVersion {
          *
          * @return 当前状态中是否有CREATIVED_STATE
          */
-        public boolean hasCreative () {
+        private boolean hasCreative () {
             return (state.getBytes ()[0] & CREATIVED_STATE_MASK) != 0;
         }
 
@@ -103,7 +103,7 @@ public class RtbLogStatRedisVersion {
          *
          * @return 当前状态中是否有SHOWED_STATE
          */
-        public boolean hasShow () {
+        private boolean hasShow () {
             return (state.getBytes ()[0] & SHOWED_STATE_MASK) != 0;
         }
 
@@ -112,7 +112,7 @@ public class RtbLogStatRedisVersion {
          *
          * @return 当前状态中是否有CLICKED_STATE
          */
-        public boolean hasClick () {
+        private boolean hasClick () {
             return (state.getBytes ()[0] & CLICKED_STATE_MASK) != 0;
         }
 
@@ -236,9 +236,10 @@ public class RtbLogStatRedisVersion {
         /**
          * 从每行bidder日志中抽取出adId和pushId作为key，根据keyword分别设置为CREATIVED、SHOWED和CLICKED状态
          *
-         * @param record
-         * @return
-         * @throws Exception
+         * @param record the log of bidder, key is null, value is one line of log
+         * @return a Tuple2, first is the adId_pushId, second a Tuple2,
+         *         first is the current state, always INIT, second is the event according to log keyword.
+         * @throws Exception throws Exception
          */
         @Override
         public Tuple2<String, Tuple2<AdState, AdState>> call (ConsumerRecord<String, String> record) throws Exception {
@@ -247,17 +248,18 @@ public class RtbLogStatRedisVersion {
             System.out.println ("key: " + record.key () + ", value: " + record.value ());
             String key = tokens[6] + "_" + tokens[7];
             String logKey = tokens[0].trim ();
-            if (logKey.equals ("rtb_creative")) {
-                System.out.println ("emit " + key + " creative event");
-                return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.CREATIVED_STATE_STR)));
-            } else if (logKey.equals ("rtb_show")) {
-                System.out.println ("emit " + key + " show event");
-                return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.SHOWED_STATE_STR)));
-            } else if (logKey.equals ("rtb_click")) {
-                System.out.println ("emit " + key + " click event");
-                return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.CLICKED_STATE_STR)));
-            } else {
-                return new Tuple2<> ("", new Tuple2<> (new AdState (), new AdState ()));
+            switch (logKey) {
+                case "rtb_creative":
+                    System.out.println ("emit " + key + " creative event");
+                    return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.CREATIVED_STATE_STR)));
+                case "rtb_show":
+                    System.out.println ("emit " + key + " show event");
+                    return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.SHOWED_STATE_STR)));
+                case "rtb_click":
+                    System.out.println ("emit " + key + " click event");
+                    return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.CLICKED_STATE_STR)));
+                default:
+                    return new Tuple2<> ("", new Tuple2<> (new AdState (), new AdState ()));
             }
         }
     }
@@ -269,21 +271,18 @@ public class RtbLogStatRedisVersion {
          * @param events 从日志中解析出来的一系列更新状态的事件信息
          * @param state  当前这个key上一次窗口操作执行结束时的状态, Tuple中第一个元素是当前状态，第二个元素是切换过的状态
          * @return 当前这个key执行完本次窗口操作时的状态
-         * @throws Exception
+         * @throws Exception throws some exception
          */
         @Override
         public Optional<Tuple2<AdState, AdState>> call (List<Tuple2<AdState, AdState>> events, Optional<Tuple2<AdState, AdState>> state) throws Exception {
             Tuple2<AdState, AdState> finalState = state.orElse (new Tuple2<> (new AdState (), new AdState ()));
             finalState = new Tuple2<> (finalState._1, new AdState ());
             List<Tuple2<AdState, AdState>> sortedEvents = new ArrayList<> (events);
-            sortedEvents.sort (new Comparator<Tuple2<AdState, AdState>> () {
-                @Override
-                public int compare (Tuple2<AdState, AdState> o1, Tuple2<AdState, AdState> o2) {
-                    if (o1._1.equals (o2._1)) {
-                        return o1._1.compareTo (o2._1);
-                    } else {
-                        return o1._2.compareTo (o2._2);
-                    }
+            sortedEvents.sort ((o1, o2) -> {
+                if (o1._1.equals (o2._1)) {
+                    return o1._1.compareTo (o2._1);
+                } else {
+                    return o1._2.compareTo (o2._2);
                 }
             });
 
@@ -308,19 +307,6 @@ public class RtbLogStatRedisVersion {
         }
     }
 
-    static class AddKeyCount implements Function2<Tuple2<AdState, AdState>, Tuple2<AdState, AdState>, Tuple2<AdState, AdState>> {
-        @Override
-        public Tuple2<AdState, AdState> call (Tuple2<AdState, AdState> v1, Tuple2<AdState, AdState> v2) throws Exception {
-            if (v1._1.compareTo (v2._1) > 0) {
-                System.out.println (v1._2);
-                return v1;
-            } else {
-                System.out.println (v2._2);
-                return v2;
-            }
-        }
-    }
-
     public static void main (String[] args) throws InterruptedException {
         if (args.length < 3) {
             System.err.println ("Usage: kafka_spark_redis <brokers> <topics> <redisServer>\n" +
@@ -336,14 +322,11 @@ public class RtbLogStatRedisVersion {
         String redisServer = args[2];
 
         String checkPointDir = "file:///tmp/redis_check_point";
-        JavaStreamingContext jssc = JavaStreamingContext.getOrCreate (checkPointDir, new Function0<JavaStreamingContext> () {
-            @Override
-            public JavaStreamingContext call () throws Exception {
-                SparkConf conf = new SparkConf ()
-                        .setAppName ("SparkStreamingRedisOp")
-                        .set ("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
-                return new JavaStreamingContext (conf, Durations.seconds (1));
-            }
+        JavaStreamingContext jssc = JavaStreamingContext.getOrCreate (checkPointDir, (Function0<JavaStreamingContext>) () -> {
+            SparkConf conf = new SparkConf ()
+                    .setAppName ("SparkStreamingRedisOp")
+                    .set ("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
+            return new JavaStreamingContext (conf, Durations.seconds (1));
         });
         jssc.checkpoint (checkPointDir);
         JavaSparkContext jsc = jssc.sparkContext ();
@@ -368,7 +351,7 @@ public class RtbLogStatRedisVersion {
                 KafkaUtils.createDirectStream (
                         jssc,
                         LocationStrategies.PreferConsistent (),
-                        ConsumerStrategies.<String, String>Subscribe (topicSet, kafkaParams)
+                        ConsumerStrategies.Subscribe (topicSet, kafkaParams)
                 );
 
         Function2<List<Tuple2<AdState, AdState>>, Optional<Tuple2<AdState, AdState>>, Optional<Tuple2<AdState, AdState>>> updateKeyFunc = new UpdatePushIdState ();
@@ -376,75 +359,59 @@ public class RtbLogStatRedisVersion {
                 .mapToPair (
                         new ExtractAdPushIDAndState ()
                 ).window (Durations.seconds (30), Durations.seconds (10)
-                ).filter (new Function<Tuple2<String, Tuple2<AdState, AdState>>, Boolean> () {
-                    @Override
-                    public Boolean call (Tuple2<String, Tuple2<AdState, AdState>> v1) throws Exception {
-                        return !v1._1.isEmpty ();
-                    }
-                }).updateStateByKey (
+                ).filter ((Function<Tuple2<String, Tuple2<AdState, AdState>>, Boolean>) v1 -> !v1._1.isEmpty ()
+                ).updateStateByKey (
                         updateKeyFunc
-                ).reduceByKey (
-                        new AddKeyCount ()
-                ).filter (new Function<Tuple2<String, Tuple2<AdState, AdState>>, Boolean> () {
-                    @Override
-                    public Boolean call (Tuple2<String, Tuple2<AdState, AdState>> v1) throws Exception {
-                        AdState updatedState = v1._2._2;
-                        System.out.println ("filter key : " + v1._1 + ", current state: " + v1._2._1 + ", updated state: " + updatedState);
-                        System.out.println ("filtered value: " + updatedState.equals (AdState.INIT_STATE));
-                        return !updatedState.equals (AdState.INIT_STATE);
-                    }
+                ).filter ((Function<Tuple2<String, Tuple2<AdState, AdState>>, Boolean>) v1 -> {
+                    AdState updatedState = v1._2._2;
+                    System.out.println ("filter key : " + v1._1 + ", current state: " + v1._2._1 + ", updated state: " + updatedState);
+                    System.out.println ("filtered value: " + updatedState.equals (AdState.INIT_STATE));
+                    return !updatedState.equals (AdState.INIT_STATE);
                 });
 
-        adPushIdState.foreachRDD (new VoidFunction2<JavaPairRDD<String, Tuple2<AdState, AdState>>, Time> () {
-            @Override
-            public void call (JavaPairRDD<String, Tuple2<AdState, AdState>> v1, Time v2) throws Exception {
-                System.out.println ("-------------------------------------------");
-                System.out.println ("Time: " + v2);
-                System.out.println ("-------------------------------------------");
-                v1.foreachPartition (new VoidFunction<Iterator<Tuple2<String, Tuple2<AdState, AdState>>>> () {
-                    @Override
-                    public void call (Iterator<Tuple2<String, Tuple2<AdState, AdState>>> valueIterator) throws Exception {
-                        String adPushId;
-                        Integer state;
-                        RedisClient redisClient = broadcastRedis.getValue ();
-                        Jedis jedis = redisClient.getResource ();
-                        Map<String, BigDecimal[]> adShowClickCount = new HashMap<> ();
-                        while (valueIterator.hasNext ()) {
-                            Tuple2<String, Tuple2<AdState, AdState>> value = valueIterator.next ();
-                            adPushId = value._1;
-                            String[] tokens = adPushId.split ("_");
-                            String adId = tokens[0];
-                            AdState updatedState = value._2._2;
-                            if (updatedState.hasShow ()) {
-                                System.out.println ("Add show count for " + adId);
-                                if (adShowClickCount.containsKey (adId)) {
-                                    BigDecimal[] showClickStat = adShowClickCount.get (adId);
-                                    showClickStat[0] = showClickStat[0].add (BigDecimal.ONE);
-                                } else {
-                                    adShowClickCount.put (adId, new BigDecimal[]{BigDecimal.ONE, BigDecimal.ZERO});
-                                }
-                            }
-                            if (updatedState.hasClick ()) {
-                                System.out.println ("Add click count for " + adId);
-                                if (adShowClickCount.containsKey (adId)) {
-                                    BigDecimal[] showClickStat = adShowClickCount.get (adId);
-                                    showClickStat[1] = showClickStat[1].add (BigDecimal.ONE);
-                                } else {
-                                    adShowClickCount.put (adId, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ONE});
-                                }
-                            }
+        adPushIdState.foreachRDD ((VoidFunction2<JavaPairRDD<String, Tuple2<AdState, AdState>>, Time>) (v1, v2) -> {
+            System.out.println ("-------------------------------------------");
+            System.out.println ("Time: " + v2);
+            System.out.println ("-------------------------------------------");
+            v1.foreachPartition ((VoidFunction<Iterator<Tuple2<String, Tuple2<AdState, AdState>>>>) valueIterator -> {
+                String adPushId;
+                RedisClient redisClient1 = broadcastRedis.getValue ();
+                Jedis jedis = redisClient1.getResource ();
+                Map<String, BigDecimal[]> adShowClickCount = new HashMap<> ();
+                while (valueIterator.hasNext ()) {
+                    Tuple2<String, Tuple2<AdState, AdState>> value = valueIterator.next ();
+                    adPushId = value._1;
+                    String[] tokens = adPushId.split ("_");
+                    String adId = tokens[0];
+                    AdState updatedState = value._2._2;
+                    if (updatedState.hasShow ()) {
+                        System.out.println ("Add show count for " + adId);
+                        if (adShowClickCount.containsKey (adId)) {
+                            BigDecimal[] showClickStat = adShowClickCount.get (adId);
+                            showClickStat[0] = showClickStat[0].add (BigDecimal.ONE);
+                        } else {
+                            adShowClickCount.put (adId, new BigDecimal[]{BigDecimal.ONE, BigDecimal.ZERO});
                         }
-                        for (Map.Entry<String, BigDecimal[]> entry : adShowClickCount.entrySet ()) {
-                            BigDecimal[] adShowClickStat = entry.getValue ();
-                            System.out.println ("Add show count " + adShowClickStat[0].longValue () + " for adid " + entry.getKey ());
-                            System.out.println ("Add click count " + adShowClickStat[1].longValue () + " for adid " + entry.getKey ());
-                            jedis.hincrBy (entry.getKey (), SHOW_FIELD, adShowClickStat[0].longValue ());
-                            jedis.hincrBy (entry.getKey (), CLICK_FIELD, adShowClickStat[1].longValue ());
-                        }
-                        jedis.close ();
                     }
-                });
-            }
+                    if (updatedState.hasClick ()) {
+                        System.out.println ("Add click count for " + adId);
+                        if (adShowClickCount.containsKey (adId)) {
+                            BigDecimal[] showClickStat = adShowClickCount.get (adId);
+                            showClickStat[1] = showClickStat[1].add (BigDecimal.ONE);
+                        } else {
+                            adShowClickCount.put (adId, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ONE});
+                        }
+                    }
+                }
+                for (Map.Entry<String, BigDecimal[]> entry : adShowClickCount.entrySet ()) {
+                    BigDecimal[] adShowClickStat = entry.getValue ();
+                    System.out.println ("Add show count " + adShowClickStat[0].longValue () + " for adid " + entry.getKey ());
+                    System.out.println ("Add click count " + adShowClickStat[1].longValue () + " for adid " + entry.getKey ());
+                    jedis.hincrBy (entry.getKey (), SHOW_FIELD, adShowClickStat[0].longValue ());
+                    jedis.hincrBy (entry.getKey (), CLICK_FIELD, adShowClickStat[1].longValue ());
+                }
+                jedis.close ();
+            });
         });
 
         jssc.start ();

@@ -19,7 +19,7 @@ import redis.clients.jedis.JedisPool;
  */
 public class RedisClient implements KryoSerializable {
 
-    public static JedisPool jedisPool;
+    private static JedisPool jedisPool;
     public String host;
 
     public RedisClient() {
@@ -62,7 +62,7 @@ public class RedisClient implements KryoSerializable {
          */
         @Override
         public void run () {
-            System.out.printf ("Destroy jedis pool");
+            System.out.print ("Destroy jedis pool");
             if (null != jedisPool) {
                 jedisPool.close ();
                 jedisPool = null;
