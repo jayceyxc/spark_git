@@ -466,7 +466,7 @@ public class RtbLogStatRedisVersion {
         JavaPairDStream<String, Tuple2<AdState, AdState>> adPushIdState = stream
                 .mapToPair (
                         new ExtractAdPushIDAndState ()
-                ).window (Durations.seconds (30), Durations.seconds (10)
+                ).window (Durations.seconds (30), Durations.seconds (10)  // 每10s执行一次操作，每次操作读取30s的日志，实际使用时这个值可以进行调整
                 ).filter ((Function<Tuple2<String, Tuple2<AdState, AdState>>, Boolean>) v1 -> !v1._1.isEmpty ()
                 ).updateStateByKey (
                         updateKeyFunc
