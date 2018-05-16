@@ -6,6 +6,7 @@ import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -24,6 +25,8 @@ import redis.clients.jedis.Jedis;
 import scala.Tuple2;
 
 import java.math.BigDecimal;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 /**
@@ -36,8 +39,10 @@ public class RtbLogStatRedisVersion {
 
     private static final String SHOW_FIELD = "show";
     private static final String CLICK_FIELD = "click";
+    private static final Logger log = Logger.getLogger (RtbLogStatRedisVersion.class);
 
     public static class AdState implements KryoSerializable, Comparable<AdState> {
+        private static final Logger log = Logger.getLogger (AdState.class);
         private static final String INIT_STATE_STR = "\u0000";
         private static final byte CREATIVED_STATE_MASK = 0x01;
         private static final byte SHOWED_STATE_MASK = 0x02;
@@ -53,13 +58,48 @@ public class RtbLogStatRedisVersion {
         private static final AdState CLICKED_STATE = new AdState (CLICKED_STATE_STR);
 
         private String state;
+        private long startTime;
+        private static final long STATE_TIMEOUT = 60;
+
+        private SimpleDateFormat dateFormat = new SimpleDateFormat ("yyyy-MM-dd HH:mm:ss");
 
         private AdState () {
+//            System.out.println ("call AdState()");
+            log.debug ("call AdState()");
             this.state = INIT_STATE_STR;
+            this.startTime = System.currentTimeMillis () / 1000;
         }
 
         private AdState (String state) {
+//            System.out.println ("call AdState (String state)");
+            log.debug ("call AdState (String state)");
             this.state = state;
+            this.startTime = System.currentTimeMillis () / 1000;
+        }
+
+        private AdState (String state, long startTime) {
+//            System.out.println ("call AdState (String state, long startTime)");
+            log.debug ("call AdState (String state, long startTime)");
+            this.state = state;
+            this.startTime = startTime;
+        }
+
+        /**
+         *
+         * @param state the state string
+         * @param startTime the time string, format is 2018-05-10 17:48:49
+         */
+        private AdState (String state, String startTime) {
+//            System.out.println ("call AdState (String state, String startTime)");
+            log.debug ("call AdState (String state, String startTime)");
+            this.state = state;
+            Date date = new Date();
+            try {
+                date = dateFormat.parse (startTime);
+            } catch (ParseException pe) {
+                pe.printStackTrace ();
+            }
+            this.startTime = date.getTime () / 1000;
         }
 
         /**
@@ -164,14 +204,59 @@ public class RtbLogStatRedisVersion {
             return new String (new byte[]{(byte) (state.getBytes ()[0] | CLICKED_STATE_MASK)});
         }
 
-        @Override
-        public void write (Kryo kryo, Output output) {
-            kryo.writeObject (output, state);
+        public boolean isExpired() {
+            return System.currentTimeMillis () / 1000 - startTime > STATE_TIMEOUT;
         }
 
+        public void setStartTime(String startTime) {
+//            System.out.println ("call setStartTime(String startTime)");
+            log.debug ("call setStartTime(String startTime)");
+            Date date = new Date();
+            try {
+                date = dateFormat.parse (startTime);
+            } catch (ParseException pe) {
+                pe.printStackTrace ();
+            }
+            this.startTime = date.getTime () / 1000;
+        }
+
+        public void setStartTime(long startTime) {
+//            System.out.println ("call setStartTime(long startTime)");
+            log.debug ("call setStartTime(long startTime)");
+            this.startTime = startTime;
+        }
+
+        public long getStartTime() {
+            return startTime;
+        }
+
+        /**
+         * 在spark的各个转换操作之间会通过这个write接口来将数据写到其他执行节点
+         * @param kryo the Kryo object
+         * @param output the output stream
+         */
+        @Override
+        public void write (Kryo kryo, Output output) {
+//            System.out.println ("call write");
+            log.debug ("call write");
+            kryo.writeObject (output, state);
+            kryo.writeObject (output, startTime);
+        }
+
+        /**
+         * 在spark的各个转换操作之间会通过这个read接口来读取其他执行节点的数据
+         * 看日志可以发现读取数据时首先调用无参接口创建对象，然后调用read接口读取数据
+         * 调试时没有对startTime字段调用kryo.writeObject和kryo.readObject，导致
+         * 每次操作是startTime都是读取到的时间。
+         * @param kryo the Kryo object
+         * @param input the input stream
+         */
         @Override
         public void read (Kryo kryo, Input input) {
+//            System.out.println ("call read");
+            log.debug ("call read");
             state = kryo.readObject (input, String.class);
+            startTime = kryo.readObject (input, Long.class);
         }
 
         @Override
@@ -218,6 +303,7 @@ public class RtbLogStatRedisVersion {
                     "has creative state: " + hasCreative () +
                     ", has show state: " + hasShow () +
                     ", has click state: " + hasClick () +
+                    ", start time: " + startTime +
                     '}';
         }
 
@@ -245,21 +331,25 @@ public class RtbLogStatRedisVersion {
         public Tuple2<String, Tuple2<AdState, AdState>> call (ConsumerRecord<String, String> record) throws Exception {
             String value = record.value ();
             String[] tokens = value.split ("\u0001");
-            System.out.println ("key: " + record.key () + ", value: " + record.value ());
+//            System.out.println ("key: " + record.key () + ", value: " + record.value ());
+            log.info("key: " + record.key () + ", value: " + record.value ());
             String key = tokens[6] + "_" + tokens[7];
             String logKey = tokens[0].trim ();
             switch (logKey) {
                 case "rtb_creative":
-                    System.out.println ("emit " + key + " creative event");
-                    return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.CREATIVED_STATE_STR)));
+//                    System.out.println ("emit " + key + " creative event");
+                    log.info("emit " + key + " creative event");
+                    return new Tuple2<> (key, new Tuple2<> (new AdState (AdState.INIT_STATE_STR, tokens[4].trim ()), new AdState (AdState.CREATIVED_STATE_STR, tokens[4].trim ())));
                 case "rtb_show":
-                    System.out.println ("emit " + key + " show event");
-                    return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.SHOWED_STATE_STR)));
+//                    System.out.println ("emit " + key + " show event");
+                    log.info("emit " + key + " show event");
+                    return new Tuple2<> (key, new Tuple2<> (new AdState (AdState.INIT_STATE_STR, tokens[4].trim ()), new AdState (AdState.SHOWED_STATE_STR, tokens[4].trim ())));
                 case "rtb_click":
-                    System.out.println ("emit " + key + " click event");
-                    return new Tuple2<> (key, new Tuple2<> (new AdState (), new AdState (AdState.CLICKED_STATE_STR)));
+//                    System.out.println ("emit " + key + " click event");
+                    log.info("emit " + key + " click event");
+                    return new Tuple2<> (key, new Tuple2<> (new AdState (AdState.INIT_STATE_STR, tokens[4].trim ()), new AdState (AdState.CLICKED_STATE_STR, tokens[4].trim ())));
                 default:
-                    return new Tuple2<> ("", new Tuple2<> (new AdState (), new AdState ()));
+                    return new Tuple2<> ("", new Tuple2<> (new AdState (AdState.INIT_STATE_STR, tokens[4].trim ()), new AdState (AdState.INIT_STATE_STR, tokens[4].trim ())));
             }
         }
     }
@@ -275,7 +365,20 @@ public class RtbLogStatRedisVersion {
          */
         @Override
         public Optional<Tuple2<AdState, AdState>> call (List<Tuple2<AdState, AdState>> events, Optional<Tuple2<AdState, AdState>> state) throws Exception {
+            if (state.isPresent ()) {
+//                System.out.println ("state is present");
+                log.debug ("state is present");
+            }
+            if (events.isEmpty ()) {
+                System.out.println ("events is empty");
+                log.debug ("events is empty");
+            }
             Tuple2<AdState, AdState> finalState = state.orElse (new Tuple2<> (new AdState (), new AdState ()));
+            if (finalState._1.isExpired ()) {
+//                System.out.println ("The ad state is expired");
+                log.info ("The ad state is expired");
+                return Optional.absent ();
+            }
             finalState = new Tuple2<> (finalState._1, new AdState ());
             List<Tuple2<AdState, AdState>> sortedEvents = new ArrayList<> (events);
             sortedEvents.sort ((o1, o2) -> {
@@ -288,21 +391,26 @@ public class RtbLogStatRedisVersion {
 
             for (Tuple2<AdState, AdState> event : sortedEvents) {
                 if (event._2.equals (AdState.CREATIVED_STATE) && finalState._1.isValidCreative ()) {
-                    System.out.println ("Add creative state");
+//                    System.out.println ("Add creative state, start time: " + event._2.getStartTime ());
+                    log.info ("Add creative state, start time: " + event._2.getStartTime ());
+                    finalState._1.setStartTime (event._2.getStartTime ());
                     finalState._1.convertToCreatived ();
                     finalState._2.convertToCreatived ();
                 } else if (event._2.equals (AdState.SHOWED_STATE) && finalState._1.isValidShow ()) {
-                    System.out.println ("Add show state");
+//                    System.out.println ("Add show state");
+                    log.info ("Add show state");
                     finalState._1.convertToShowed ();
                     finalState._2.convertToShowed ();
                 } else if (event._2.equals (AdState.CLICKED_STATE) && finalState._1.isValidClick ()) {
-                    System.out.println ("Add click state");
+//                    System.out.println ("Add click state");
+                    log.info ("Add click state");
                     finalState._1.convertToClicked ();
                     finalState._2.convertToClicked ();
                 }
             }
 
-            System.out.println ("After update by key, current state: " + finalState._1 + ", updated state: " + finalState._2);
+//            System.out.println ("After update by key, current state: " + finalState._1 + ", updated state: " + finalState._2);
+            log.debug ("After update by key, current state: " + finalState._1 + ", updated state: " + finalState._2);
             return Optional.of (finalState);
         }
     }
@@ -364,8 +472,10 @@ public class RtbLogStatRedisVersion {
                         updateKeyFunc
                 ).filter ((Function<Tuple2<String, Tuple2<AdState, AdState>>, Boolean>) v1 -> {
                     AdState updatedState = v1._2._2;
-                    System.out.println ("filter key : " + v1._1 + ", current state: " + v1._2._1 + ", updated state: " + updatedState);
-                    System.out.println ("filtered value: " + updatedState.equals (AdState.INIT_STATE));
+//                    System.out.println ("filter key : " + v1._1 + ", current state: " + v1._2._1 + ", updated state: " + updatedState);
+//                    System.out.println ("filtered value: " + updatedState.equals (AdState.INIT_STATE));
+                    log.info ("filter key : " + v1._1 + ", current state: " + v1._2._1 + ", updated state: " + updatedState);
+                    log.info ("filtered value: " + updatedState.equals (AdState.INIT_STATE));
                     return !updatedState.equals (AdState.INIT_STATE);
                 });
 
@@ -385,7 +495,8 @@ public class RtbLogStatRedisVersion {
                     String adId = tokens[0];
                     AdState updatedState = value._2._2;
                     if (updatedState.hasShow ()) {
-                        System.out.println ("Add show count for " + adId);
+//                        System.out.println ("Add show count for " + adId);
+                        log.info ("Add show count for " + adId);
                         if (adShowClickCount.containsKey (adId)) {
                             BigDecimal[] showClickStat = adShowClickCount.get (adId);
                             showClickStat[0] = showClickStat[0].add (BigDecimal.ONE);
@@ -394,7 +505,8 @@ public class RtbLogStatRedisVersion {
                         }
                     }
                     if (updatedState.hasClick ()) {
-                        System.out.println ("Add click count for " + adId);
+//                        System.out.println ("Add click count for " + adId);
+                        log.info ("Add click count for " + adId);
                         if (adShowClickCount.containsKey (adId)) {
                             BigDecimal[] showClickStat = adShowClickCount.get (adId);
                             showClickStat[1] = showClickStat[1].add (BigDecimal.ONE);
@@ -405,8 +517,10 @@ public class RtbLogStatRedisVersion {
                 }
                 for (Map.Entry<String, BigDecimal[]> entry : adShowClickCount.entrySet ()) {
                     BigDecimal[] adShowClickStat = entry.getValue ();
-                    System.out.println ("Add show count " + adShowClickStat[0].longValue () + " for adid " + entry.getKey ());
-                    System.out.println ("Add click count " + adShowClickStat[1].longValue () + " for adid " + entry.getKey ());
+//                    System.out.println ("Add show count " + adShowClickStat[0].longValue () + " for adid " + entry.getKey ());
+//                    System.out.println ("Add click count " + adShowClickStat[1].longValue () + " for adid " + entry.getKey ());
+                    log.info ("Add show count " + adShowClickStat[0].longValue () + " for adid " + entry.getKey ());
+                    log.info ("Add click count " + adShowClickStat[1].longValue () + " for adid " + entry.getKey ());
                     jedis.hincrBy (entry.getKey (), SHOW_FIELD, adShowClickStat[0].longValue ());
                     jedis.hincrBy (entry.getKey (), CLICK_FIELD, adShowClickStat[1].longValue ());
                 }
